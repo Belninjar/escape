@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no" />
+<title>Minuteur Bombe – Escape</title>
+<style>
+  :root{
+    --bg:#0e1013;
+    --panel:#2a2f38;
+    --panel-edge:#161a20;
+    --digit-off:#1a1d21;
+    --digit-on:#ff2d2d;
+    --digit-shadow:#660f0f88;
+    --accent:#19d47c;
+    --warn:#ff3b30;
+    --ok:#2ecc71;
+    --key:#3a414d;
+    --key-border:#596275;
+    --key-active:#6b7487;
+    --txt:#dfe6ee;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+
+  /* Layout */
+  .wrap{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:16px;min-height:100%;padding:12px 12px 24px}
+  .timer{
+    width:min(700px,96vw);
+    aspect-ratio:6.2/1.7;
+    background:linear-gradient(180deg,#0c0e11 0%,#121419 60%,#0c0f14 100%);
+    border-radius:24px;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:inset 0 0 0 2px #000,inset 0 0 40px #000,0 20px 60px #0008;
+    position:relative;
+  }
+  .logo-container{position:absolute;left:10px;top:10px;width:64px;height:64px;border-radius:10px;background-size:contain;background-repeat:no-repeat;background-position:center;opacity:.95}
+  .digits{
+    display:flex;gap:2vw;letter-spacing:0.02em;align-items:center;justify-content:center;
+    font-variant-numeric:tabular-nums;
+    user-select:none;
+    width:100%;
+  }
+  .seg{
+    font-size:clamp(42px,16vw,180px);
+    line-height:1;
+    font-family:monospace;
+    position:relative;
+    padding:0 .08em;
+    color:var(--digit-on);
+    text-shadow:0 0 14px var(--digit-shadow),0 0 28px var(--digit-shadow);
+  }
+  .seg.off{color:#1a1d21;text-shadow:none;opacity:.14}
+  .colon{padding:0 .05em}
+  /* Panel with code + keypad */
+  .panel{
+    width:min(700px,96vw);
+    border-radius:24px;
+    background:linear-gradient(180deg,#2a2f38,#1f242c 60%,#1b2027);
+    box-shadow:inset 0 0 0 2px var(--panel-edge),inset 0 0 50px #0008,0 20px 60px #0008;
+    padding:16px;
+    display:grid;grid-template-columns:1.2fr .9fr;gap:14px;
+  }
+  @media (max-width:640px){.panel{grid-template-columns:1fr}}
+  .screen{
+    background:radial-gradient(120% 180% at 10% 0%,#0a2518,#04150f 70%,#03110c);
+    border-radius:14px;
+    box-shadow:inset 0 0 0 2px #052d1e, inset 0 0 18px #000;
+    padding:10px 12px;
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+  }
+  .label{opacity:.7;font-size:12px}
+  .code{font-family:ui-monospace, Menlo, Consolas, Monaco, "Courier New", monospace;color:var(--accent);font-size:26px;letter-spacing:.15em}
+  .status{font-size:12px;opacity:.8}
+  .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .key{
+    background:linear-gradient(180deg,var(--key),#2c3340);
+    border:1.5px solid var(--key-border);
+    border-bottom-width:3px;
+    box-shadow:0 6px 14px #0008, inset 0 0 10px #0006;
+    color:#eaf1ff;
+    font-weight:600;
+    font-size:22px;border-radius:14px;padding:16px 0;text-align:center;
+    user-select:none;cursor:pointer;
+  }
+  .key:active{transform:translateY(1px);background:var(--key-active)}
+  .key.wide{grid-column:span 2}
+  .ok{background:#10371f;border-color:#1c6d3d}
+  .danger{background:#3d1111;border-color:#6d1c1c}
+
+  /* input window */
+  .entry{display:flex;gap:8px;align-items:center;justify-content:flex-start;background:#0f1217;border:1px solid #232a34;border-radius:12px;padding:10px 12px;box-shadow:inset 0 0 10px #0009}
+  .entry .bubble{flex:1;display:flex;gap:10px;justify-content:flex-start;align-items:center;min-height:42px}
+  .dot{width:18px;height:26px;border-radius:6px;border:2px solid #394456;background:#151a22;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#b2c0d3}
+
+  /* feedback */
+  .flash-red{animation:flashRed .3s linear 3}
+  .flash-green{animation:flashGreen .4s ease-out 1}
+  .shake{animation:shake .35s linear 1}
+  @keyframes flashRed{50%{box-shadow:0 0 0 3px var(--warn),0 0 40px var(--warn);}}
+  @keyframes flashGreen{40%{box-shadow:0 0 0 3px var(--ok),0 0 40px var(--ok);}}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+
+  /* overlay for enabling audio on iOS if needed */
+  .arm{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:99}
+  .arm.active{display:flex}
+  .arm button{background:#091d0f;border:2px solid #0e4024;color:#bff3d5;font-size:18px;border-radius:16px;padding:14px 20px}
+  .foot{opacity:.6;font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- TIMER -->
+  <div id="timer" class="timer">
+    <div class="logo-container" id="logo"></div>
+    <div class="digits">
+      <span id="m1" class="seg">0</span>
+      <span id="m2" class="seg">9</span>
+      <span class="seg colon">:</span>
+      <span id="s1" class="seg">5</span>
+      <span id="s2" class="seg">9</span>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div class="panel" id="panel">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="screen">
+        <div class="label">CODE</div>
+        <div class="code" id="codeDisplay">0000</div>
+        <div class="status" id="status">⏳ armé</div>
+      </div>
+      <div class="entry" id="entry">
+        <div class="bubble" id="bubble">
+          <div class="dot" data-i="0">•</div>
+          <div class="dot" data-i="1">•</div>
+          <div class="dot" data-i="2">•</div>
+          <div class="dot" data-i="3">•</div>
+        </div>
+      </div>
+    </div>
+    <div class="keys" aria-label="clavier">
+      <div class="key">1</div><div class="key">2</div><div class="key">3</div>
+      <div class="key">4</div><div class="key">5</div><div class="key">6</div>
+      <div class="key">7</div><div class="key">8</div><div class="key">9</div>
+      <div class="key danger" data-act="clr">C</div>
+      <div class="key">0</div>
+      <div class="key ok" data-act="ok">OK</div>
+    </div>
+  </div>
+
+  <div class="foot">Astuce : tu peux aussi taper au clavier (0–9, Entrée, Retour arrière).</div>
+</div>
+
+<!-- Overlay to enable audio on iOS if autoplay est bloqué -->
+<div class="arm" id="arm"><button id="armBtn">Activer le son</button></div>
+
+<script>
+/* ================== CONFIG ==================
+   Tu peux aussi passer ?t=MM:SS&code=1234&logo=URL
+*/
+const CONFIG = {
+  START_MINUTES: 10,
+  START_SECONDS: 0,
+  RANDOMIZE_CODE: false,
+  FIXED_CODE: "1358",
+  BEEP_EVERY_TICK: true,   // bip chaque seconde
+  BEEP_ON_SUCCESS: true,
+  BEEP_ON_ERROR: true,
+  VIBRATE: true,
+  LOGO_URL: ""            // ex: "logo.png" (laisse vide pour rien)
+};
+/* =========================================== */
+
+function parseUrlConfig(){
+  const p = new URLSearchParams(location.search);
+  const t = (p.get('t')||'').trim();
+  const code = (p.get('code')||'').replace(/\D/g,'');
+  const logo = (p.get('logo')||'').trim();
+  if(/^\d{1,2}:\d{2}$/.test(t)){
+    const [mm,ss] = t.split(':').map(n=>+n);
+    CONFIG.START_MINUTES = mm; CONFIG.START_SECONDS = ss;
+  }
+  if(code.length===4){ CONFIG.FIXED_CODE = code; CONFIG.RANDOMIZE_CODE=false; }
+  if(logo) CONFIG.LOGO_URL = logo;
+}
+parseUrlConfig();
+
+const d = (n)=>String(n).padStart(2,'0');
+let targetCode = CONFIG.RANDOMIZE_CODE ? (''+Math.floor(1000+Math.random()*9000)) : CONFIG.FIXED_CODE;
+let secondsLeft = CONFIG.START_MINUTES*60 + CONFIG.START_SECONDS;
+let running = true, interval=null;
+
+const m1=document.getElementById('m1'), m2=document.getElementById('m2'),
+      s1=document.getElementById('s1'), s2=document.getElementById('s2'),
+      codeDisplay=document.getElementById('codeDisplay'),
+      timerEl=document.getElementById('timer'),
+      entry=document.getElementById('entry'), statusEl=document.getElementById('status');
+
+// place le logo si fourni
+const logoEl = document.getElementById('logo');
+if(CONFIG.LOGO_URL){ logoEl.style.backgroundImage = `url(${CONFIG.LOGO_URL})`; }
+
+codeDisplay.textContent = "EndOfTheWorld";
+
+/* ---------- Audio (Web Audio API) ---------- */
+let actx=null;
+function ensureAudio(){
+  if(!actx){
+    try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }
+    catch(e){ actx=null; }
+  }
+}
+function simpleBeep(freq=900,ms=80,vol=0.2,type='square'){
+  if(!actx) return;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.frequency.value=freq; o.type=type;
+  g.gain.value=vol; o.connect(g); g.connect(actx.destination);
+  o.start();
+  setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime+0.04); o.stop(actx.currentTime+0.05); }, ms);
+}
+// DTMF (deux oscillateurs, comme un téléphone)
+const DTMF={
+ '1':[697,1209],'2':[697,1336],'3':[697,1477],
+ '4':[770,1209],'5':[770,1336],'6':[770,1477],
+ '7':[852,1209],'8':[852,1336],'9':[852,1477],
+ '*':[941,1209],'0':[941,1336],'#':[941,1477]
+};
+function dtmf(digit,ms=120,vol=0.18){
+  if(!actx || !DTMF[digit]) return;
+  const [f1,f2] = DTMF[digit];
+  const o1=actx.createOscillator(), o2=actx.createOscillator();
+  const g=actx.createGain(); g.gain.value=vol;
+  o1.frequency.value=f1; o2.frequency.value=f2;
+  o1.type='sine'; o2.type='sine';
+  o1.connect(g); o2.connect(g); g.connect(actx.destination);
+  o1.start(); o2.start();
+  setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime+0.04); o1.stop(actx.currentTime+0.05); o2.stop(actx.currentTime+0.05); }, ms);
+}
+function chord(ok=true){
+  if(!actx) return;
+  if(ok && CONFIG.BEEP_ON_SUCCESS){ simpleBeep(650,140,0.25,'square'); setTimeout(()=>simpleBeep(1000,180,0.2,'square'),110); }
+  if(!ok && CONFIG.BEEP_ON_ERROR){ simpleBeep(220,200,0.24,'square'); setTimeout(()=>simpleBeep(160,240,0.2,'square'),170); }
+}
+// Bip de tick plus strident
+function tickBeep(){ if(CONFIG.BEEP_EVERY_TICK) simpleBeep(3200,50,0.28,'sawtooth'); }
+
+// Certains mobiles bloquent l’audio avant interaction
+document.addEventListener('pointerdown',()=>{ ensureAudio(); if(actx?.state==='suspended') actx.resume(); }, {once:true});
+
+/* ---------- Timer ---------- */
+function renderTime(){
+  const mm = Math.floor(secondsLeft/60), ss = secondsLeft%60;
+  const t = d(mm)+d(ss);
+  m1.textContent=t[0]; m2.textContent=t[1]; s1.textContent=t[2]; s2.textContent=t[3];
+}
+function tick(){
+  if(!running) return;
+  if(secondsLeft<=0){ running=false; statusEl.textContent="💥 BOOM (fin)"; timerEl.classList.add('flash-red'); return; }
+  secondsLeft--; renderTime(); tickBeep();
+}
+function startTimer(){ renderTime(); ensureAudio(); interval = setInterval(tick,1000); }
+startTimer();
+
+/* ---------- Input logic ---------- */
+let buffer=[];
+const bubble = document.getElementById('bubble');
+const dots = [...bubble.querySelectorAll('.dot')];
+function updateDots(){ dots.forEach((d,i)=>{ d.textContent = buffer[i] ?? '•'; d.style.opacity = buffer[i] ? 1 : .7; }); }
+function wrong(){
+  entry.classList.remove('shake','flash-red'); void entry.offsetWidth; entry.classList.add('shake','flash-red');
+  timerEl.classList.remove('flash-red'); void timerEl.offsetWidth; timerEl.classList.add('flash-red');
+  if(CONFIG.VIBRATE && navigator.vibrate) navigator.vibrate([80,80,60]);
+  chord(false);
+  buffer=[]; updateDots();
+  statusEl.textContent="❌ code erroné";
+}
+function success(){
+  running=false; clearInterval(interval);
+  statusEl.textContent="✅ désamorcée";
+  timerEl.classList.remove('flash-green'); void timerEl.offsetWidth; timerEl.classList.add('flash-green');
+  chord(true);
+}
+function pushDigit(d){
+  if(!/^\d$/.test(d)) return;
+  dtmf(d); // tonalité de touche
+  if(buffer.length<4){ buffer.push(d); updateDots(); }
+  if(buffer.length===4){ if(buffer.join('')===targetCode) success(); else wrong(); }
+}
+function backspace(){ buffer.pop(); updateDots(); }
+function clearAll(){ buffer=[]; updateDots(); statusEl.textContent="⏳ armé"; }
+
+// keypad clicks
+Array.from(document.querySelectorAll('.key')).forEach(k=>{
+  k.addEventListener('click',()=>{
+    const act = k.getAttribute('data-act');
+    if(act==='clr'){ dtmf('*'); clearAll(); return; }
+    if(act==='ok'){ if(buffer.join('')===targetCode) success(); else wrong(); return; }
+    pushDigit(k.textContent.trim());
+  });
+});
+
+// keyboard entries
+window.addEventListener('keydown',(e)=>{
+  if(e.key>='0' && e.key<='9'){ pushDigit(e.key); }
+  else if(e.key==='Backspace'){ dtmf('#',90,0.12); backspace(); }
+  else if(e.key==='Enter'){ if(buffer.join('')===targetCode) success(); else wrong(); }
+});
+
+/* --------- Handle iOS autoplay block --------- */
+const arm=document.getElementById('arm'), armBtn=document.getElementById('armBtn');
+setTimeout(()=>{ ensureAudio(); if(actx && actx.state==='suspended'){ arm.classList.add('active'); } }, 900);
+armBtn?.addEventListener('click', async ()=>{ ensureAudio(); try{ await actx.resume(); arm.classList.remove('active'); }catch{} });
+</script>
+</body>
+</html>
