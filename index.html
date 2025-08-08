@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#000000" />
+  <!-- Conseillé pour ajout à l'écran d'accueil -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Lecteur d'empreinte – Prototype</title>
   <style>
     :root{
@@ -40,7 +43,7 @@
     .panel-bg{
       position:absolute; inset:0;
       width:100vw; height:100vh;
-      object-fit:scale-down;         /* couvre tout l’écran */
+      object-fit:scale-down;   /* adapte à l'écran comme tu le souhaites */
       z-index:0; pointer-events:none;
     }
 
@@ -55,7 +58,7 @@
       display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
       gap:min(5vh, 28px);
       z-index:1;
-      /* debug (option) : ajoute [data-debug=\"1\"] sur .screen pour voir le cadre */
+      /* debug (option) : ajoute [data-debug="1"] sur .screen pour voir le cadre */
       /* outline: 1px dashed rgba(0,255,128,.5); */
     }
 
@@ -101,16 +104,6 @@
       100%{ top:76% }
     }
 
-    /* Ligne basse (optionnelle, style “underline”) */
-    .baseline{
-      width:80%; height:4px;
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
-      border-radius: 999px;
-      opacity:.9;
-      margin-top: auto;          /* pousse la ligne vers le bas de la zone */
-    }
-
     .ok-text{
       position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
       color:var(--accent);
@@ -119,9 +112,22 @@
       z-index:2;
     }
     .ok-text.show{ display:block }
+
+    /* Bouton plein écran */
+    .fs-btn{
+      position:fixed; right:10px; top:10px; z-index:3;
+      background: rgba(0,0,0,.55);
+      color:#cfe6da; border:1px solid rgba(255,255,255,.25);
+      padding:8px 10px; border-radius:10px;
+      font-size:13px; font-weight:600;
+      backdrop-filter: blur(6px);
+    }
+    .fs-btn.hide{ display:none; }
   </style>
 </head>
 <body>
+  <button id="fsBtn" class="fs-btn" type="button" aria-label="Activer le plein écran">⤢ Plein écran</button>
+
   <div class="scanner" id="scanner" aria-label="Lecteur d'empreinte (maintenir 2 secondes)">
     <!-- 🔳 Image de fond plein écran -->
     <img class="panel-bg" src="https://iili.io/Fs8PMAv.md.png" alt="fond de l'app (cadre + écran)" />
@@ -140,7 +146,6 @@
         />
         <div class="scanbar" id="scanbar"></div>
       </div>
-
     </div>
   </div>
 
@@ -153,11 +158,38 @@
     const scanbar   = document.getElementById('scanbar');
     const okText    = document.getElementById('okText');
     const statusTxt = document.getElementById('statusText');
+    const fsBtn     = document.getElementById('fsBtn');
 
     let holdTimer = null;
     let isScanning = false;
     let unlocked = false;
 
+    /* === FULLSCREEN helpers === */
+    function isFullscreen(){
+      return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
+    }
+    async function ensureFullscreen(){
+      if (isFullscreen()) return;
+      const el = document.documentElement;
+      try{
+        if (el.requestFullscreen)       await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (el.mozRequestFullScreen)    el.mozRequestFullScreen();
+        // Option : tenter le verrouillage portrait si permis
+        if (screen.orientation && screen.orientation.lock) {
+          try { await screen.orientation.lock('portrait'); } catch(e){}
+        }
+        fsBtn.classList.add('hide'); // cache le bouton si ça a marché
+      }catch(e){
+        // si refusé, on laisse le bouton visible pour réessayer
+        console.debug('Fullscreen refusé/indisponible', e);
+      }
+    }
+    fsBtn.addEventListener('click', ensureFullscreen);
+    // Tentative auto au premier contact utilisateur
+    let triedAutoFS = false;
+
+    /* === Empreinte: appui long === */
     function startHold(){
       if (isScanning || unlocked) return;
       isScanning = true;
@@ -193,13 +225,24 @@
     }
 
     // Events pointer = unifiés (tactile + souris)
-    scanner.addEventListener('pointerdown', (e)=>{ e.preventDefault(); resetIfUnlocked(); startHold(); });
+    scanner.addEventListener('pointerdown', (e)=>{
+      e.preventDefault();
+      resetIfUnlocked();
+      // tenter d'entrer en plein écran au 1er geste utilisateur
+      if (!triedAutoFS){ triedAutoFS = true; ensureFullscreen(); }
+      startHold();
+    });
     scanner.addEventListener('pointerup',   (e)=>{ e.preventDefault(); cancelHold(); });
     scanner.addEventListener('pointercancel', cancelHold);
     scanner.addEventListener('pointerleave',  cancelHold);
 
     // Désactiver menu contextuel sur long-press mobile
     scanner.addEventListener('contextmenu', (e)=> e.preventDefault());
+
+    // Montrer/cacher le bouton selon l'état
+    document.addEventListener('fullscreenchange', ()=>{
+      fsBtn.classList.toggle('hide', !!isFullscreen());
+    });
   </script>
 </body>
 </html>
