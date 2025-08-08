@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#000000" />
+  <title>Lecteur d'empreinte – Prototype</title>
+  <style>
+    :root{
+      /* === Réglages manuels de la zone interactive (écran) ===
+         - left/top : position du CENTRE de la zone, en % du viewport
+         - width/height : taille de la zone (px ou %) */
+      --screen-left: 50%;
+      --screen-top: 58%;
+      --screen-width: 66%;
+      --screen-height: 62%;
+
+      --accent:#00ff80;
+      --text:#cfe6da;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: Roboto, Arial, sans-serif;
+      color:var(--text);
+      background:#000;
+      overflow:hidden; /* pas de scroll, on reste plein écran */
+    }
+
+    /* Conteneur plein écran */
+    .scanner{
+      position:relative;
+      width:100vw; height:100vh;
+      user-select:none; -webkit-user-select:none;
+      touch-action:manipulation;
+    }
+
+    /* 👉 Remplace BACKGROUND_URL.png par ton image (cadre + écran) */
+    .panel-bg{
+      position:absolute; inset:0;
+      width:100vw; height:100vh;
+      object-fit:scale-down;         /* couvre tout l’écran */
+      z-index:0; pointer-events:none;
+    }
+
+    /* Zone interactive, positionnée et dimensionnée par variables CSS */
+    .screen{
+      position:absolute;
+      left: var(--screen-left);
+      top: var(--screen-top);
+      width: var(--screen-width);
+      height: var(--screen-height);
+      transform: translate(-50%, -50%); /* centre sur left/top */
+      display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+      gap:min(5vh, 28px);
+      z-index:1;
+      /* debug (option) : ajoute [data-debug=\"1\"] sur .screen pour voir le cadre */
+      /* outline: 1px dashed rgba(0,255,128,.5); */
+    }
+
+    .status-text{
+      color:var(--accent);
+      text-transform:uppercase;
+      font-weight:800;
+      letter-spacing:.08em;
+      font-size: clamp(18px, 4.8vw, 28px);
+      text-align:center;
+      text-shadow: 0 0 12px rgba(0,255,128,.55);
+      margin-top: min(2vh, 10px);
+    }
+
+    .finger-wrap{
+      position:relative;
+      width:min(68%, 340px);
+      aspect-ratio:1/1;
+      display:flex; align-items:center; justify-content:center;
+    }
+
+    /* Icône Flaticon recolorée en vert (sans modifier le fichier) */
+    .fingerprint-img{
+      max-width:100%; max-height:100%;
+      filter:
+        brightness(0) saturate(100%)
+        invert(62%) sepia(96%) saturate(900%)
+        hue-rotate(85deg) brightness(105%) contrast(95%)
+        drop-shadow(0 0 10px rgba(0,255,128,.55));
+      -webkit-user-drag:none;
+    }
+
+    /* Barre de scan */
+    .scanbar{
+      position:absolute; left:8%; right:8%; height:14%;
+      background: linear-gradient(180deg, transparent, var(--accent), transparent);
+      border-radius:12px; filter: blur(6px) drop-shadow(0 0 8px var(--accent));
+      opacity:0; pointer-events:none;
+    }
+    .scanbar.is-scanning{ opacity:.9; animation: sweep 1.1s ease-in-out infinite alternate }
+    @keyframes sweep{
+      0%{ top:10% }
+      100%{ top:76% }
+    }
+
+    /* Ligne basse (optionnelle, style “underline”) */
+    .baseline{
+      width:80%; height:4px;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      border-radius: 999px;
+      opacity:.9;
+      margin-top: auto;          /* pousse la ligne vers le bas de la zone */
+    }
+
+    .ok-text{
+      position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+      color:var(--accent);
+      font-weight:800; letter-spacing:.08em; text-transform:uppercase; display:none;
+      text-align:center; text-shadow:0 0 12px rgba(0,255,128,.55);
+      z-index:2;
+    }
+    .ok-text.show{ display:block }
+  </style>
+</head>
+<body>
+  <div class="scanner" id="scanner" aria-label="Lecteur d'empreinte (maintenir 2 secondes)">
+    <!-- 🔳 Image de fond plein écran -->
+    <img class="panel-bg" src="https://iili.io/Fs8PMAv.md.png" alt="fond de l'app (cadre + écran)" />
+
+    <!-- 🎯 Zone interactive (calable avec les variables CSS ci-dessus) -->
+    <div class="screen" id="screen">
+      <div class="status-text" id="statusText">LASERS DESACTIVES</div>
+
+      <div class="finger-wrap">
+        <!-- Icône Flaticon -->
+        <img
+          src="https://cdn-icons-png.flaticon.com/512/890/890122.png"
+          alt="empreinte digitale"
+          class="fingerprint-img"
+          draggable="false"
+        />
+        <div class="scanbar" id="scanbar"></div>
+      </div>
+
+      <div class="baseline" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div class="ok-text" id="okText" aria-live="polite">LASERS DESACTIVÉS</div>
+
+  <script>
+    const HOLD_MS = 2000; // durée minimale d'appui
+
+    const scanner   = document.getElementById('scanner');
+    const scanbar   = document.getElementById('scanbar');
+    const okText    = document.getElementById('okText');
+    const statusTxt = document.getElementById('statusText');
+
+    let holdTimer = null;
+    let isScanning = false;
+    let unlocked = false;
+
+    function startHold(){
+      if (isScanning || unlocked) return;
+      isScanning = true;
+      okText.classList.remove('show');
+      statusTxt.textContent = 'VERIFICATION...';
+      scanbar.classList.add('is-scanning');
+
+      holdTimer = setTimeout(()=> {
+        // Succès après 2s de maintien
+        scanbar.classList.remove('is-scanning');
+        okText.classList.add('show');
+        statusTxt.textContent = 'LASERS DESACTIVES';
+        isScanning = false;
+        unlocked = true;
+      }, HOLD_MS);
+    }
+
+    function cancelHold(){
+      if (!isScanning) return;
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      isScanning = false;
+      scanbar.classList.remove('is-scanning');
+      statusTxt.textContent = 'LASERS DESACTIVES';
+    }
+
+    // Réinitialiser si on re-clique après succès
+    function resetIfUnlocked(){
+      if (!unlocked) return;
+      unlocked = false;
+      okText.classList.remove('show');
+      statusTxt.textContent = 'LASERS DESACTIVES';
+    }
+
+    // Events pointer = unifiés (tactile + souris)
+    scanner.addEventListener('pointerdown', (e)=>{ e.preventDefault(); resetIfUnlocked(); startHold(); });
+    scanner.addEventListener('pointerup',   (e)=>{ e.preventDefault(); cancelHold(); });
+    scanner.addEventListener('pointercancel', cancelHold);
+    scanner.addEventListener('pointerleave',  cancelHold);
+
+    // Désactiver menu contextuel sur long-press mobile
+    scanner.addEventListener('contextmenu', (e)=> e.preventDefault());
+  </script>
+</body>
+</html>
