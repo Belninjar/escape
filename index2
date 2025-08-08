@@ -34,7 +34,7 @@
     box-shadow:inset 0 0 0 2px #000,inset 0 0 40px #000,0 20px 60px #0008;
     position:relative;
   }
-  .logo-container{position:absolute;left:10px;top:10px;width:64px;height:64px;border-radius:10px;background-size:contain;background-repeat:no-repeat;background-position:center;opacity:.95}
+  .logo-container{position:absolute;left:40px;top:400px;width:120px;height:120px;border-radius:10px;background-size:contain;background-repeat:no-repeat;background-position:center;opacity:.95}
   .digits{
     display:flex;gap:2vw;letter-spacing:0.02em;align-items:center;justify-content:center;
     font-variant-numeric:tabular-nums;
@@ -168,7 +168,7 @@ const CONFIG = {
   BEEP_ON_SUCCESS: true,
   BEEP_ON_ERROR: true,
   VIBRATE: true,
-  LOGO_URL: ""            // ex: "logo.png" (laisse vide pour rien)
+  LOGO_URL: "Image2.png"            // ex: "logo.png" (laisse vide pour rien)
 };
 /* =========================================== */
 
