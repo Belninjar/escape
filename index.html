@@ -39,7 +39,7 @@
       touch-action:manipulation;
     }
 
-    /* 👉 Remplace BACKGROUND_URL.png par ton image (cadre + écran) */
+    /* 👉 Remplace l’URL par ton image (cadre + écran) */
     .panel-bg{
       position:absolute; inset:0;
       width:100vw; height:100vh;
@@ -72,6 +72,12 @@
       text-shadow: 0 0 12px rgba(0,255,128,.55);
       margin-top: min(2vh, 10px);
     }
+    /* Clignotement court quand désactivé */
+    @keyframes blink {
+      0%, 100% { opacity: 1 }
+      50% { opacity: .15 }
+    }
+    .status-text.blink { animation: blink .22s ease-in-out 6; }
 
     .finger-wrap{
       position:relative;
@@ -104,15 +110,6 @@
       100%{ top:76% }
     }
 
-    .ok-text{
-      position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
-      color:var(--accent);
-      font-weight:800; letter-spacing:.08em; text-transform:uppercase; display:none;
-      text-align:center; text-shadow:0 0 12px rgba(0,255,128,.55);
-      z-index:2;
-    }
-    .ok-text.show{ display:block }
-
     /* Bouton plein écran */
     .fs-btn{
       position:fixed; right:10px; top:10px; z-index:3;
@@ -123,6 +120,18 @@
       backdrop-filter: blur(6px);
     }
     .fs-btn.hide{ display:none; }
+
+    /* Bouton réarmement (sous l’empreinte) */
+    .rearm-btn{
+      appearance:none; border:none; cursor:pointer;
+      padding:8px 12px; border-radius:10px;
+      background: rgba(0,255,128,.12);
+      border:1px solid rgba(0,255,128,.35);
+      color:#cfe6da; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+      font-size:12px;
+      display:none; /* visible seulement quand désactivé */
+    }
+    .rearm-btn.show{ display:inline-block; }
   </style>
 </head>
 <body>
@@ -146,19 +155,20 @@
         />
         <div class="scanbar" id="scanbar"></div>
       </div>
+
+      <!-- Bouton de réarmement -->
+      <button id="rearmBtn" class="rearm-btn" type="button" aria-label="Réarmer les lasers">Réarmer</button>
     </div>
   </div>
-
-  <div class="ok-text" id="okText" aria-live="polite">LASERS DESACTIVÉS</div>
 
   <script>
     const HOLD_MS = 2000; // durée minimale d'appui
 
     const scanner   = document.getElementById('scanner');
     const scanbar   = document.getElementById('scanbar');
-    const okText    = document.getElementById('okText');
     const statusTxt = document.getElementById('statusText');
     const fsBtn     = document.getElementById('fsBtn');
+    const rearmBtn  = document.getElementById('rearmBtn');
 
     let holdTimer = null;
     let isScanning = false;
@@ -175,35 +185,54 @@
         if (el.requestFullscreen)       await el.requestFullscreen();
         else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
         else if (el.mozRequestFullScreen)    el.mozRequestFullScreen();
-        // Option : tenter le verrouillage portrait si permis
         if (screen.orientation && screen.orientation.lock) {
           try { await screen.orientation.lock('portrait'); } catch(e){}
         }
-        fsBtn.classList.add('hide'); // cache le bouton si ça a marché
+        fsBtn.classList.add('hide');
       }catch(e){
-        // si refusé, on laisse le bouton visible pour réessayer
         console.debug('Fullscreen refusé/indisponible', e);
       }
     }
     fsBtn.addEventListener('click', ensureFullscreen);
-    // Tentative auto au premier contact utilisateur
     let triedAutoFS = false;
+
+    /* === Audio (petit son à la désactivation) === */
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    function successTone(){
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      const now = audioCtx.currentTime;
+      o.frequency.setValueAtTime(520, now);
+      o.frequency.exponentialRampToValueAtTime(1040, now + 0.22);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.06, now+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now+0.35);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(); o.stop(now+0.38);
+    }
 
     /* === Empreinte: appui long === */
     function startHold(){
       if (isScanning || unlocked) return;
       isScanning = true;
-      okText.classList.remove('show');
+      statusTxt.classList.remove('blink');
+      rearmBtn.classList.remove('show');
       statusTxt.textContent = 'VERIFICATION...';
       scanbar.classList.add('is-scanning');
 
       holdTimer = setTimeout(()=> {
         // Succès après 2s de maintien
         scanbar.classList.remove('is-scanning');
-        okText.classList.add('show');
         statusTxt.textContent = 'LASERS DESACTIVES';
+        statusTxt.classList.add('blink');   // clignote brièvement
+        successTone();                      // petit son
+        if (navigator.vibrate) navigator.vibrate([20, 40, 20]); // option: vibration
         isScanning = false;
         unlocked = true;
+        rearmBtn.classList.add('show');     // affiche le bouton de réarmement
       }, HOLD_MS);
     }
 
@@ -216,18 +245,17 @@
       statusTxt.textContent = 'LASERS DESACTIVES';
     }
 
-    // Réinitialiser si on re-clique après succès
-    function resetIfUnlocked(){
-      if (!unlocked) return;
+    // Réarmer manuellement
+    function rearm(){
       unlocked = false;
-      okText.classList.remove('show');
-      statusTxt.textContent = 'LASERS DESACTIVES';
+      statusTxt.classList.remove('blink');
+      statusTxt.textContent = 'LASERS ACTIVES';
+      rearmBtn.classList.remove('show');
     }
 
     // Events pointer = unifiés (tactile + souris)
     scanner.addEventListener('pointerdown', (e)=>{
       e.preventDefault();
-      resetIfUnlocked();
       // tenter d'entrer en plein écran au 1er geste utilisateur
       if (!triedAutoFS){ triedAutoFS = true; ensureFullscreen(); }
       startHold();
@@ -236,10 +264,12 @@
     scanner.addEventListener('pointercancel', cancelHold);
     scanner.addEventListener('pointerleave',  cancelHold);
 
+    rearmBtn.addEventListener('click', rearm);
+
     // Désactiver menu contextuel sur long-press mobile
     scanner.addEventListener('contextmenu', (e)=> e.preventDefault());
 
-    // Montrer/cacher le bouton selon l'état
+    // Montrer/cacher le bouton selon l'état plein écran
     document.addEventListener('fullscreenchange', ()=>{
       fsBtn.classList.toggle('hide', !!isFullscreen());
     });
