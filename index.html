@@ -196,6 +196,27 @@
     fsBtn.addEventListener('click', ensureFullscreen);
     let triedAutoFS = false;
 
+    /* === WAKE LOCK (garder l'écran allumé) === */
+    let wakeLock = null;
+    async function requestWakeLock(){
+      if (!('wakeLock' in navigator)) return;
+      try{
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', ()=> {
+          console.debug('WakeLock relâché');
+        });
+        console.debug('WakeLock actif');
+      }catch(err){
+        console.debug('WakeLock refusé/indisponible', err && err.message);
+      }
+    }
+    // Réacquérir le wake lock quand on revient sur la page
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && wakeLock !== null) {
+        requestWakeLock();
+      }
+    });
+
     /* === Audio (petit son à la désactivation) === */
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     const audioCtx = new AudioCtx();
@@ -256,8 +277,9 @@
     // Events pointer = unifiés (tactile + souris)
     scanner.addEventListener('pointerdown', (e)=>{
       e.preventDefault();
-      // tenter d'entrer en plein écran au 1er geste utilisateur
+      // tenter d'entrer en plein écran et d'activer le wake lock au 1er geste utilisateur
       if (!triedAutoFS){ triedAutoFS = true; ensureFullscreen(); }
+      if (wakeLock === null){ requestWakeLock(); }
       startHold();
     });
     scanner.addEventListener('pointerup',   (e)=>{ e.preventDefault(); cancelHold(); });
@@ -271,9 +293,9 @@
 
     // Montrer/cacher le bouton selon l'état plein écran
     document.addEventListener('fullscreenchange', ()=>{
-      fsBtn.classList.toggle('hide', !!isFullscreen());
+      const fs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+      fsBtn.classList.toggle('hide', fs);
     });
   </script>
 </body>
 </html>
-
